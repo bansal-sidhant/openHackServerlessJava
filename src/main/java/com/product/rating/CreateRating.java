@@ -61,16 +61,16 @@ public class CreateRating {
         // https://serverlessohapi.azurewebsites.net/api/GetUser?userId=cc20a6fb-a91f-4192-874d-132493685376
         String userURL = "https://serverlessohapi.azurewebsites.net/api/GetUser?userId=" + userId;
         boolean isUserValid = false;
-        
+
         String productURL = "https://serverlessohapi.azurewebsites.net/api/GetProduct?productId=" + productId;
         boolean isProductValid = false;
-      
+
         try {
             URL userIdUrl = new URL(userURL);
-            isUserValid = getResponse(userIdUrl,context);
+            isUserValid = getResponse(userIdUrl, context);
 
             URL productIdUrl = new URL(productURL);
-            isProductValid = getResponse(productIdUrl,context);
+            isProductValid = getResponse(productIdUrl, context);
 
         } catch (MalformedURLException e) {
             // TODO Auto-generated catch block
@@ -80,17 +80,31 @@ public class CreateRating {
             e.printStackTrace();
         }
 
-        context.getLogger().info("Valid User "+isUserValid+ " Valid Prouduct "+isProductValid);
+        context.getLogger().info("Valid User " + isUserValid + " Valid Prouduct " + isProductValid);
 
-        if (json == null) {
+        if (!isUserValid) {
             return request.createResponseBuilder(HttpStatus.BAD_REQUEST)
-                    .body("Please pass a name on the query string or in the request body").build();
+                    .body("Invalid User").build();
+        } else if (!isProductValid) {
+            return request.createResponseBuilder(HttpStatus.BAD_REQUEST)
+                    .body("Invalid Product").build();
+        } else if (!isRatingValid()) {
+            return request.createResponseBuilder(HttpStatus.BAD_REQUEST)
+                    .body("Invalid Rating").build();
+        } else if (isUserValid && isProductValid && isRatingValid()) {
+            return request.createResponseBuilder(HttpStatus.OK).header("Content-Type", "application/json")
+                    .body(createJson().toString()).build();
+
         } else {
-            return request.createResponseBuilder(HttpStatus.OK).body(createJson().toString()).build();
+            return request.createResponseBuilder(HttpStatus.BAD_REQUEST)
+                    .body("Please check the Request").build();
         }
     }
 
-    public boolean isValid() {
+    public boolean isRatingValid() {
+        if (rating >= 0 && rating <= 5) {
+            return true;
+        }
         return false;
     }
 
@@ -106,19 +120,19 @@ public class CreateRating {
         return responseJson;
     }
 
-    private boolean getResponse(URL url,ExecutionContext context) throws IOException {
+    private boolean getResponse(URL url, ExecutionContext context) throws IOException {
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
         connection.setRequestMethod("GET");
         connection.setDoOutput(true);
 
         connection.connect();
         int code = connection.getResponseCode();
-        context.getLogger().info("URL " +url);
-        context.getLogger().info("Response Code" +connection.getResponseCode());
+        context.getLogger().info("URL " + url);
+        context.getLogger().info("Response Code" + connection.getResponseCode());
 
         if (code == 200) {
             return true;
-        } 
+        }
 
         return false;
     }
