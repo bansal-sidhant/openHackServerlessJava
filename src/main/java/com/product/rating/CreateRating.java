@@ -1,11 +1,24 @@
 package com.product.rating;
 
+import com.azure.cosmos.ConsistencyLevel;
+import com.azure.cosmos.CosmosClient;
+import com.azure.cosmos.CosmosClientBuilder;
+import com.azure.cosmos.CosmosContainer;
+import com.azure.cosmos.CosmosDatabase;
+import com.azure.cosmos.models.CosmosContainerProperties;
+import com.azure.cosmos.models.CosmosContainerResponse;
+import com.azure.cosmos.models.CosmosDatabaseResponse;
+import com.azure.cosmos.models.CosmosItemRequestOptions;
+import com.azure.cosmos.models.CosmosItemResponse;
 import com.microsoft.azure.functions.ExecutionContext;
 import com.microsoft.azure.functions.HttpMethod;
 import com.microsoft.azure.functions.HttpRequestMessage;
 import com.microsoft.azure.functions.HttpResponseMessage;
 import com.microsoft.azure.functions.HttpStatus;
+import com.microsoft.azure.functions.OutputBinding;
 import com.microsoft.azure.functions.annotation.AuthorizationLevel;
+import com.microsoft.azure.functions.annotation.CosmosDBInput;
+import com.microsoft.azure.functions.annotation.CosmosDBOutput;
 import com.microsoft.azure.functions.annotation.FunctionName;
 import com.microsoft.azure.functions.annotation.HttpTrigger;
 
@@ -19,6 +32,7 @@ import java.net.MalformedURLException;
 import java.net.ProtocolException;
 import java.net.URL;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -42,11 +56,24 @@ public class CreateRating {
     private int rating;
     private String userNotes;
 
+    private final String databaseName = "RatingDetails";
+    private final String containerName = "RatingApp";
+
+    private CosmosClient client;
+    private CosmosDatabase database;
+    private CosmosContainer container;
+
+
     @FunctionName("createRating")
     public HttpResponseMessage run(
             @HttpTrigger(name = "req", methods = {
                     HttpMethod.POST }, authLevel = AuthorizationLevel.ANONYMOUS) HttpRequestMessage<Optional<String>> request,
-            final ExecutionContext context) {
+                    @CosmosDBOutput(name = "RatingDetails",
+              databaseName = "RatingApp",
+              collectionName = "Rating",
+              connectionStringSetting = "CONNECTION_STRING")
+              OutputBinding<Rating> outputItem,
+            final ExecutionContext context) throws Exception{
         context.getLogger().info("Java HTTP trigger processed a request.");
 
         JSONObject json = new JSONObject(StringEscapeUtils.unescapeJava(request.getBody().get()));
@@ -58,7 +85,7 @@ public class CreateRating {
         userNotes = json.getString("userNotes");
         timeStamp = LocalDateTime.now().toString();
 
-        // https://serverlessohapi.azurewebsites.net/api/GetUser?userId=cc20a6fb-a91f-4192-874d-132493685376
+
         String userURL = "https://serverlessohapi.azurewebsites.net/api/GetUser?userId=" + userId;
         boolean isUserValid = false;
 
@@ -92,6 +119,9 @@ public class CreateRating {
             return request.createResponseBuilder(HttpStatus.BAD_REQUEST)
                     .body("Invalid Rating").build();
         } else if (isUserValid && isProductValid && isRatingValid()) {
+           // createData();
+            Rating ratingPojo = new Rating(id, userId, productId, timeStamp, locationName, rating, userNotes);
+            outputItem.setValue(ratingPojo);
             return request.createResponseBuilder(HttpStatus.OK).header("Content-Type", "application/json")
                     .body(createJson().toString()).build();
 
@@ -136,4 +166,55 @@ public class CreateRating {
 
         return false;
     }
+
+    private void createData() throws Exception {
+        Rating ratingPojo = new Rating(id, userId, productId, timeStamp, locationName, rating, userNotes);
+                ArrayList<String> preferredRegions = new ArrayList<String>();
+                preferredRegions.add("West US");
+
+                //  Create sync client
+                client = new CosmosClientBuilder()
+                        .endpoint("https://ratingappcosmojava.documents.azure.com:443/")
+                        .key("2EqYFw0i19Mq5zagr3UcTrxIkAaRZWbCR6tPJv6Iql7S6EnqR2nBLEBKlRH4EF1SLZPlQLtQuUtjzQmsoEMb9w==")
+                        .preferredRegions(preferredRegions)
+                        .userAgentSuffix("RatingAppCosmosJava")
+                        .consistencyLevel(ConsistencyLevel.EVENTUAL)
+                        .buildClient();
+
+                createDatabaseIfNotExists();
+                createContainerIfNotExists();
+                createRating(ratingPojo);
+
+    }
+
+    private void createDatabaseIfNotExists() throws Exception {
+        //System.out.println("Create database " + databaseName + " if not exists.");
+
+        //  Create database if not exists
+        CosmosDatabaseResponse databaseResponse = client.createDatabaseIfNotExists(databaseName);
+        database = client.getDatabase(databaseResponse.getProperties().getId());
+
+        //System.out.println("Checking database " + database.getId() + " completed!\n");
+    }
+
+    private void createContainerIfNotExists() throws Exception {
+        //System.out.println("Create container " + containerName + " if not exists.");
+
+        //  Create container if not exists
+        CosmosContainerProperties containerProperties =
+                new CosmosContainerProperties(containerName, "/partitionKey");
+
+        CosmosContainerResponse containerResponse = database.createContainerIfNotExists(containerProperties);
+        container = database.getContainer(containerResponse.getProperties().getId());
+
+    }
+
+    private void createRating(Rating rating) throws Exception {
+
+            //  Create item using container that we created using sync client
+
+            //  Using appropriate partition key improves the performance of database operations
+            CosmosItemResponse item = container.createItem(rating, null, new CosmosItemRequestOptions());
+    }
+
 }
